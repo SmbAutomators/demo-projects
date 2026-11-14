@@ -1,19 +1,10 @@
-# Sample tools
+# Front desk
 
-Original representative sample of a minimal MCP server. Not a client system.
+A lookup desk for Pine Street Heating, a made-up shop. Not a real company, and not a client's system.
 
-`server.py` speaks newline-delimited JSON-RPC 2.0 on stdin and stdout. stdout is protocol only. The three tools return a fabricated catalog. They do not read a live business system.
+The page can check the Miller visit, list what is waiting on parts, or draft a note for the Chen job. The note is not sent. Answers are sentences, not a data dump.
 
-`console.py` is a short-lived MCP client with a page. Each view starts `server.py` as a subprocess, sends `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`, and prints what came back. The page does not import the tool functions.
-
-## What it shows
-
-- A stdio MCP server a host can launch
-- `tools/list` and `tools/call`
-- Fake tools with obvious sample ids: `REC-104`, `REC-220`, `REC-315`
-- The wire message for one call
-
-## Run the console
+## Run
 
 From this folder:
 
@@ -25,13 +16,15 @@ Open http://127.0.0.1:8743
 
 Python 3.10 or newer. The standard library is enough.
 
-The first paint has already called `lookup_sample_record` for `REC-104`. The buttons start a new session for the other tools.
+The page opens on the Miller visit. **What's waiting** is the mounting bracket. **Note for the Chen job** writes a line and stops there.
 
-![MCP console showing a lookup of fabricated record REC-104](images/console.png)
+![Front desk answer for the Miller furnace visit](images/console.png)
 
-## Run the server on its own
+## Under the hood
 
-A host launches the server and keeps stdin open. One way to see a single response:
+`server.py` is a small MCP server. A host starts it and talks on stdin and stdout, one JSON message per line. `console.py` is that host for the page: each click starts the server, asks what it can do, and calls one tool. The page does not import the tool functions.
+
+To see a reply on its own:
 
 ```bash
 printf '%s\n' \
@@ -41,9 +34,7 @@ printf '%s\n' \
   | python3 server.py
 ```
 
-## Wire it to a host
-
-Point the host at `server.py`. Cursor uses a file such as `.cursor/mcp.json` in the project you are working in, not this sample's folder:
+Cursor, or any host that can start a process, uses the same file. Put this in the project you are working in, for example `.cursor/mcp.json`, with the real path:
 
 ```json
 {
@@ -56,17 +47,12 @@ Point the host at `server.py`. Cursor uses a file such as `.cursor/mcp.json` in 
 }
 ```
 
-Any other MCP client that can spawn a process and speak newline-delimited JSON-RPC uses the same command. The server reads the protocol version the client sends and answers `2024-11-05` when it does not know that version.
+If the host asks for a protocol version this server does not know, the server answers `2024-11-05`.
 
-## Tools
-
-| Tool | Arguments | Returns |
+| On the page | Tool name | What you get |
 | --- | --- | --- |
-| `lookup_sample_record` | `record_id` | One fabricated record, or a clear miss |
-| `list_open_sample_items` | none | Records that are not in stock. In this catalog, that is `REC-220` |
-| `draft_sample_note` | `record_id`, optional `audience` | A note. It is not sent |
+| Miller visit | `lookup_sample_record` | The afternoon furnace visit, invoice 1042 |
+| What's waiting | `list_open_sample_items` | The mounting bracket, on backorder |
+| Note for the Chen job | `draft_sample_note` | A customer note. It is not sent |
 
-## Where to read
-
-- `server.py` — `TOOLS`, `handle`, and the stdin loop
-- `console.py` — `session`, which is the whole client
+Read `server.py` for the tools and the stdin loop, and `console.py` for `session`, which is the whole client.

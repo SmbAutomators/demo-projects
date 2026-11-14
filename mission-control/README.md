@@ -1,17 +1,8 @@
-# Mission Control
+# Today
 
-Original representative sample of an interface layer that hosts its own automations. Not a client system.
+The office view for Pine Street Heating, a made-up shop. Not a real company, and not a client's system.
 
-This process stores the connections, runs the handlers, and writes the history. Scheduled jobs and the Run button both call `execute`. The sample does not call Zapier, n8n, Make, or any other workflow host.
-
-Orders, SKUs, and tickets are fabricated tables in `app.py`.
-
-## What it shows
-
-- A connection list the handlers read
-- A registry, `AUTOMATIONS`, of named handlers
-- One runner for the scheduler and the Run button
-- An acknowledgement handler that will not write the same sample record twice
+Mail, the job calendar, and the parts shelf show as connected. Three jobs run for the shop: the morning job list, an on-the-way text when a tech leaves, and a Friday check of unpaid invoices. The bottom of the page is what already happened.
 
 ## Run
 
@@ -25,14 +16,12 @@ Open http://127.0.0.1:8741
 
 Python 3.10 or newer. The standard library is enough. Ctrl+C stops it.
 
-On startup the hourly jobs are due, so `tick` runs them once and then arms the next check an hour out. One sample event is also delivered to the acknowledgement handler. Press Run on that automation and the new history row says the record was already acknowledged.
+On open, the morning list and the Friday invoice check have already run, and the Miller house has been texted. Press **Run now** on the on-the-way text. The new line says the house was already texted, and no second text went out.
 
-![Mission Control dashboard with connections, automations, and run history](images/dashboard.png)
+![Today at Pine Street Heating](images/dashboard.png)
 
-## Where to read
+## Under the hood
 
-- `CONNECTIONS`, `INVENTORY`, `ORDERS`, `TICKETS` — the fabricated sources
-- `run_inventory_digest`, `run_acknowledgement`, `run_stale_nudge` — the handlers
-- `execute` and `tick` — the host
+The jobs live in this process. Scheduled runs and the Run now button use the same path. Nothing is handed to Zapier, n8n, or Make.
 
-In a client build, the in-process tables become real adapters. The registry, the runner, and the history stay.
+Read `AUTOMATIONS` for the three jobs, `execute` for a single run, and `tick` for the clock.

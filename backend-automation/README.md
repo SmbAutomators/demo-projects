@@ -1,17 +1,8 @@
-# Webhook inbox
+# Invoice reminders
 
-Original representative sample of a backend automation. Not a client system.
+Bookkeeping for Pine Street Heating, a made-up shop. Not a real company, and not a client's system.
 
-`POST /api/events` takes a JSON event with an idempotency key. A new key is put on an in-process queue. A worker thread runs `apply` once and stores the result. The same key again returns that result and does not enter the queue.
-
-`apply` records a fabricated record id in memory. It has no client business rules and it does not call another service.
-
-## What it shows
-
-- A webhook entry point
-- A queue and a worker
-- An idempotent handler
-- A log of accepted, processed, and duplicate deliveries
+Past-due invoices get one reminder. Pressing send again for the same invoice does not send a second note. The page is the log the bookkeeper would look at.
 
 ## Run
 
@@ -25,22 +16,22 @@ Open http://127.0.0.1:8742
 
 Python 3.10 or newer. The standard library is enough.
 
-The page starts with one seeded delivery, `evt-seed-1008`, already processed through the queue. **Send sample event** posts key `evt-ui-2041`. **Send that key again** must come back as a duplicate. You can post your own event:
+The page opens with invoice 1042, the Miller furnace visit, already reminded. **Remind the Chen family** sends invoice 1048. **Try that reminder again** comes back as already sent.
+
+You can post a reminder yourself:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8742/api/events \
   -H 'Content-Type: application/json' \
-  -d '{"idempotency_key":"evt-1","type":"sample.record.created","payload":{"record_id":"REC-315"}}'
+  -d '{"idempotency_key":"invoice-1048","type":"sample.record.created","payload":{"record_id":"1048","customer":"Chen"}}'
 ```
 
-A body with no `idempotency_key` is rejected. A second post of `evt-1` returns the stored result.
+A second post of that same key returns the stored result. A body with no key is turned away.
 
-![Webhook activity log showing a processed event and a duplicate](images/activity.png)
+![Invoice reminders for Pine Street Heating](images/activity.png)
 
-## Where to read
+## Under the hood
 
-- `accept` — the idempotency check and the queue
-- `worker` — the consumer
-- `apply` — the only handler, and the whole of the sample's "business" step
+`POST /api/events` puts a new invoice on an in-process queue. A worker sends the reminder once and stores the result. The same key does not enter the queue again.
 
-The request waits until the worker finishes so the page can show the log line. The work still crosses the queue.
+Read `accept` for the once-only check, `worker` for the queue, and `apply` for the reminder itself.

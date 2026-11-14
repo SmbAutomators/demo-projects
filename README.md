@@ -1,53 +1,51 @@
 # Demo projects
 
-Representative samples for people deciding whether to hire Joe Edler / [SMB Automators](https://github.com/SmbAutomators).
+Samples for people deciding whether to hire Joe Edler / [SMB Automators](https://github.com/SmbAutomators).
 
-These programs are original. They use a fabricated catalog, and they are not a client's production system, data, or implementation. Each one runs on a laptop with Python 3.10 or newer. No API key, account, or hosted workflow product is required.
+Each screen belongs to the same made-up heating shop, Pine Street Heating. The shop is not a real company. These programs are original, and they are not a client's system, data, or code.
 
-The same made-up records show up in more than one folder: sample SKUs, sample orders, sample tickets. That is so the five programs are easy to compare. The folders do not import each other, and none of the records are real.
+Every sample runs with Python 3.10 or newer. No account, API key, or outside workflow product is required. Stop one with Ctrl+C. Each process stays on this machine.
 
-## Samples
+## The five screens
 
-| Folder | What it shows | Run |
+| Folder | What you would open | Run |
 | --- | --- | --- |
-| [mission-control](mission-control/) | An interface that holds its own connections and runs its own automations | `python3 mission-control/app.py` then open http://127.0.0.1:8741 |
-| [backend-automation](backend-automation/) | A webhook, an in-process queue, and an idempotent handler with a log | `python3 backend-automation/app.py` then open http://127.0.0.1:8742 |
-| [mcps](mcps/) | A minimal MCP server and a page that talks to it over stdio | `python3 mcps/console.py` then open http://127.0.0.1:8743 |
-| [chat-bots](chat-bots/) | A conversation UI backed by a scripted desk, not a model API | `python3 chat-bots/app.py` then open http://127.0.0.1:8744 |
-| [agents](agents/) | An agent loop with two fake tools and the trace on screen | `python3 agents/app.py` then open http://127.0.0.1:8745 |
+| [mission-control](mission-control/) | Today's board: connected accounts, jobs that run on their own, and what already happened | `python3 mission-control/app.py` then open http://127.0.0.1:8741 |
+| [backend-automation](backend-automation/) | Invoice reminders. One note per invoice, even if you press send twice | `python3 backend-automation/app.py` then open http://127.0.0.1:8742 |
+| [mcps](mcps/) | Front desk. Look up a visit, see what's waiting, or draft a note | `python3 mcps/console.py` then open http://127.0.0.1:8743 |
+| [chat-bots](chat-bots/) | Customer messages. Visits, invoices, hours, and a refusal to take an alarm code | `python3 chat-bots/app.py` then open http://127.0.0.1:8744 |
+| [agents](agents/) | Parts desk. Check the shelf, then write what to tell the customer | `python3 agents/app.py` then open http://127.0.0.1:8745 |
 
-Stop a sample with Ctrl+C. Each process binds to `127.0.0.1` only. Each folder's README explains the code to read.
+## Today
 
-## Mission Control
+The office view. Mail, the job calendar, and the parts shelf are connected. The morning list, the on-the-way text, and the Friday invoice check have already run.
 
-The dashboard lists sample connections, the automations registered in the process, and the runs those automations have already produced. The runner is in this process.
+![Today at Pine Street Heating, with connected accounts, shop jobs, and what already happened](mission-control/images/dashboard.png)
 
-![Mission Control dashboard with connections, automations, and run history](mission-control/images/dashboard.png)
+## Invoice reminders
 
-## Backend automation
+Miller's invoice was already sent this morning. Sending the Chen reminder twice still produces one note.
 
-Sending the same idempotency key twice records one handled event and one duplicate. The second delivery does not run the handler again.
+![Invoice reminders, with the Chen note sent once and a second try marked already sent](backend-automation/images/activity.png)
 
-![Webhook activity log showing a processed event and a duplicate](backend-automation/images/activity.png)
+## Front desk
 
-## MCP server
+Ask about the Miller visit. The answer is a sentence a dispatcher can read. The same desk can list parts that are waiting and draft a note it does not send.
 
-The console starts `server.py`, lists its tools, and calls one. The tools return fabricated records. A host such as Cursor wires the same stdio server; the note is in [mcps/README.md](mcps/README.md).
+![Front desk answer for the Miller furnace visit](mcps/images/console.png)
 
-![MCP console showing a tool call and its result](mcps/images/console.png)
+## Customer messages
 
-## Chat bot
+A short thread from this afternoon: the furnace visit, a request to email the invoice, and a refusal to share an alarm code.
 
-The thread is a sample desk. Replies come from rules in the repo, including a refusal to touch credentials.
+![Customer messages about today's furnace visit, an invoice, and an alarm code](chat-bots/images/conversation.png)
 
-![Chat conversation with the scripted sample desk](chat-bots/images/conversation.png)
+## Parts desk
 
-## Agent
+Ask whether the condenser fan is in stock. The desk checks the shelf, then writes the line to tell the customer. It does not text them.
 
-The loop looks up sample SKU-104 and drafts a reply. The planner is scripted so the trace runs with no model API. `plan` is the function to replace with a model call.
-
-![Agent trace with two tool calls and a final reply](agents/images/trace.png)
+![Parts desk checking the condenser fan and writing a customer note](agents/images/trace.png)
 
 ## What is not in this repository
 
-Client names, production credentials, private data, and proprietary implementations. These folders stand in for the shape of the work.
+Client names, production credentials, private data, and a client's own software. Pine Street Heating stands in for the kind of shop these tools are built for.

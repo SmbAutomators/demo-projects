@@ -8,7 +8,6 @@ API key. The orders it knows are fabricated.
 from __future__ import annotations
 
 import json
-import re
 import sys
 import threading
 from html import escape
@@ -17,11 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HOST = "127.0.0.1"
 PORT = 8744
 
-ORDERS = {
-    "SO-2041": "packed, with a sample handoff window on the next weekday morning",
-    "SO-2042": "waiting on a sample payment flag",
+JOBS = {
+    "1042": "Invoice 1042 is the Miller furnace visit, $480, and it is still unpaid.",
+    "1048": "Invoice 1048 is the Chen no-heat call, $260. The mounting bracket is on backorder, so the job is not finished.",
 }
-ORDER_RE = re.compile(r"SO-\d+", re.IGNORECASE)
 
 THREAD: list[dict[str, str]] = []
 LOCK = threading.Lock()
@@ -32,32 +30,29 @@ def esc(value: object) -> str:
 
 
 def reply(message: str) -> str:
-    """Scripted desk. The branches are the product: lookup, draft, refuse."""
+    """Front-desk answers. The branches are the product: a job, a draft, a refusal."""
     text = " ".join(message.split())
     if not text:
-        return "Send a question. Hours, a sample order number, or a draft note all work."
+        return "Ask about today's visits, an invoice, or shop hours."
     lower = text.lower()
-    if any(word in lower for word in ("password", "credential", "secret", "ssn")):
+    if any(word in lower for word in ("password", "alarm", "code", "credential", "secret")):
         return (
-            "This sample does not collect or reset credentials. "
-            "A production bot would hand that request to a verified workflow."
+            "I can't take alarm codes or passwords here. Call the shop and we'll make sure it's you."
         )
     if any(word in lower for word in ("hour", "open", "close")):
-        return "The sample desk is open weekdays, 09:00 to 17:00, on the demo clock. No calendar was queried."
-    match = ORDER_RE.search(text)
-    if match:
-        order_id = match.group(0).upper()
-        if order_id not in ORDERS:
-            return f"No sample order is filed under {order_id}. This demo knows SO-2041 and SO-2042."
-        return f"Sample order {order_id} is {ORDERS[order_id]}. No carrier was contacted."
-    if any(word in lower for word in ("draft", "note", "email")):
+        return "The shop is open weekdays, 7:30 to 5."
+    for number, answer in JOBS.items():
+        if number in text:
+            return answer
+    if any(word in lower for word in ("email", "invoice", "draft", "note")):
         return (
-            "Draft, not sent: Hello — we checked the sample order and will write again "
-            "when its status changes. Reply if you need a different sample order number."
+            "I saved a note for invoice 1042, the Miller furnace visit, $480, still unpaid. "
+            "I won't email it from this chat."
         )
+    if any(word in lower for word in ("furnace", "miller", "today", "afternoon")):
+        return "The Miller furnace visit is still on for this afternoon. Invoice 1042 is $480 and unpaid."
     return (
-        "I can look up sample orders SO-2041 and SO-2042, give sample desk hours, "
-        "or draft a note. I am a scripted bot in this demo, not a live model."
+        "I can check today's visits, look up invoice 1042 or 1048, or tell you the shop hours."
     )
 
 
@@ -71,9 +66,9 @@ def say(text: str) -> None:
 def seed() -> None:
     if THREAD:
         return
-    say("Where is sample order SO-2041?")
-    say("Draft a short note to the customer.")
-    say("I forgot my password.")
+    say("Is the furnace visit still on for today?")
+    say("Can you email the Miller invoice?")
+    say("What's the alarm code for the Miller house?")
 
 
 def thread_html() -> str:
@@ -82,7 +77,7 @@ def thread_html() -> str:
     parts = []
     for turn in turns:
         role = "user" if turn["role"] == "user" else "bot"
-        who = "You" if role == "user" else "Sample desk"
+        who = "You" if role == "user" else "Front desk"
         parts.append(
             f"<article class='msg {role}'><span class='who'>{who}</span>{esc(turn['text'])}</article>"
         )
@@ -146,73 +141,88 @@ PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sample desk — representative sample</title>
+  <title>Messages — Pine Street Heating</title>
   <style>
-    :root { color-scheme: light; --paper: #e7e1d4; --card: #f7f3ea; --ink: #1c1915; --muted: #5e584e; --soft: #d9d2c5; --clay: #8f3d24; }
+    :root { color-scheme: light; --ink:#111; --yellow:#F5C400; --paper:#F3F3F0; --card:#fff; --line:#E4E4E0; --muted:#5E5E5E; }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
-    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; border-top: 6px solid var(--clay); }
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 28px 36px; }
-    header { display: flex; justify-content: space-between; gap: 32px; align-items: end; margin-bottom: 18px; }
-    .kicker, footer, .who { font-family: "JetBrains Mono", ui-monospace, monospace; }
-    .kicker { margin: 0 0 6px; color: var(--clay); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
-    h1 { margin: 0; font-family: "Liberation Serif", Georgia, serif; font-size: 38px; font-weight: 400; letter-spacing: -0.03em; line-height: 0.95; }
-    .lede { max-width: 380px; margin: 0; color: var(--muted); font-size: 14px; }
-    .panel { background: var(--card); border: 1px solid var(--ink); }
-    .panel h2 { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--ink); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; }
+    .app { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+    .nav { background: #111; color: #fff; padding: 18px 14px; }
+    .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; }
+    .mark { width: 34px; height: 34px; border-radius: 8px; background: var(--yellow); color: #111; font-weight: 800; display: grid; place-items: center; }
+    .brand strong { display: block; font-size: 14px; }
+    .brand span { color: #B5B5B5; font-size: 12px; }
+    .item { color: #D0D0D0; font-size: 14px; padding: 9px 10px; border-radius: 8px; margin-bottom: 4px; }
+    .item.on { background: var(--yellow); color: #111; font-weight: 700; }
+    .main { padding: 22px 26px 28px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; font-weight: 750; }
+    .lede, .office { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+    .panel h2 { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 700; }
     button, input { font: inherit; }
-    button { background: var(--ink); color: var(--card); border: 1px solid var(--ink); padding: 8px 12px; cursor: pointer; }
-    button.ghost { background: transparent; color: var(--ink); }
-    button:disabled { opacity: 0.45; cursor: wait; }
-    input { width: 100%; border: 1px solid var(--ink); background: #fffdf8; padding: 8px 10px; color: var(--ink); }
-    .layout { display: grid; grid-template-columns: 1fr 280px; gap: 16px; align-items: start; }
-    #thread { padding: 4px 0 6px; }
-    .msg { width: min(540px, 86%); margin: 12px 14px; padding: 10px 12px; }
-    .msg.user { margin-left: auto; background: var(--ink); color: var(--card); }
-    .msg.bot { background: #efeae1; border: 1px solid var(--soft); }
-    .who { display: block; margin-bottom: 4px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
-    .msg.user .who { color: #e4c2b6; }
-    .msg.bot .who { color: var(--clay); }
-    .composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--ink); }
+    button { background: var(--yellow); color: #111; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 700; }
+    button.ghost { background: #fff; color: #111; border: 1px solid #111; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    input { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 8px 10px; color: var(--ink); }
+    .layout { display: grid; grid-template-columns: 1fr 260px; gap: 14px; align-items: start; }
+    #thread { padding: 6px 0 8px; min-height: 280px; }
+    .msg { width: min(520px, 86%); margin: 12px 14px; padding: 10px 12px; border-radius: 12px; }
+    .msg.user { margin-left: auto; background: #111; color: #fff; }
+    .msg.bot { background: #fff; border: 1px solid var(--line); box-shadow: inset 3px 0 0 var(--yellow); }
+    .who { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; }
+    .msg.user .who { color: var(--yellow); }
+    .msg.bot .who { color: #111; }
+    .composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
     .composer input { flex: 1; }
     .prompts { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; }
     .prompts button { text-align: left; }
     .aside p { margin: 12px 14px 0; color: var(--muted); font-size: 13px; }
-    #error { color: var(--clay); }
-    footer { margin-top: 14px; color: var(--muted); font-size: 11px; }
+    #error { color: #8A1F1F; }
+    footer { margin-top: 14px; color: #8A8A8A; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <p class="kicker">Representative sample</p>
-        <h1>Sample desk</h1>
-      </div>
-      <p class="lede">A conversation UI. Replies are scripted in this repo, so the demo needs no model API.</p>
-    </header>
-    <div class="layout">
-      <section class="panel">
-        <h2>Conversation</h2>
-        <div id="thread">__THREAD__</div>
-        <form class="composer" id="composer">
-          <label class="kicker" for="text" style="position:absolute;left:-999px">Message</label>
-          <input id="text" name="text" autocomplete="off" placeholder="Ask about a sample order">
-          <button type="submit">Send</button>
-        </form>
-      </section>
-      <aside class="panel aside">
-        <h2>Try these</h2>
-        <p>Each button sends the line through the same reply function as the box.</p>
-        <div class="prompts">
-          <button type="button" class="ghost" data-prompt="What are the sample desk hours?">Desk hours</button>
-          <button type="button" class="ghost" data-prompt="Where is sample order SO-2042?">Order SO-2042</button>
-          <button type="button" class="ghost" data-prompt="I forgot my password.">Password reset</button>
+  <div class="app">
+    <aside class="nav">
+      <div class="brand"><span class="mark">P</span><div><strong>Pine Street</strong><span>Heating</span></div></div>
+      <div class="item">Today</div>
+      <div class="item on">Messages</div>
+      <div class="item">Jobs</div>
+      <div class="item">Customers</div>
+    </aside>
+    <div class="main">
+      <header>
+        <div>
+          <h1>Customer messages</h1>
+          <p class="lede">The front desk answers visits, invoices, and hours. Alarm codes stay off this screen.</p>
         </div>
-      </aside>
+        <p class="office">Front desk</p>
+      </header>
+      <div class="layout">
+        <section class="panel">
+          <h2>This afternoon</h2>
+          <div id="thread">__THREAD__</div>
+          <form class="composer" id="composer">
+            <label for="text" style="position:absolute;left:-999px">Message</label>
+            <input id="text" name="text" autocomplete="off" placeholder="Ask about a visit or an invoice">
+            <button type="submit">Send</button>
+          </form>
+        </section>
+        <aside class="panel aside">
+          <h2>Quick replies</h2>
+          <p>Same answers as typing it yourself.</p>
+          <div class="prompts">
+            <button type="button" class="ghost" data-prompt="What are the shop hours?">Shop hours</button>
+            <button type="button" class="ghost" data-prompt="What's going on with invoice 1048?">Invoice 1048</button>
+            <button type="button" class="ghost" data-prompt="What's the alarm code?">Alarm code</button>
+          </div>
+        </aside>
+      </div>
+      <p id="error" hidden></p>
+      <footer>Pine Street Heating is a made-up shop. Not a real company, and not a client's system.</footer>
     </div>
-    <p id="error" hidden></p>
-    <footer>Original representative sample of the kind of work. Not a client system.</footer>
   </div>
   <script>
     async function send(text) {

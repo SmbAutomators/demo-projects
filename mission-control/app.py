@@ -14,50 +14,40 @@ import json
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = "127.0.0.1"
 PORT = 8741
 
-INVENTORY = (
-    {"sku": "SKU-104", "name": "Sample widget", "on_hand": 18, "threshold": 6},
-    {"sku": "SKU-220", "name": "Sample bracket", "on_hand": 0, "threshold": 8},
-    {"sku": "SKU-315", "name": "Sample gasket", "on_hand": 40, "threshold": 10},
-)
-
-ORDERS = (
-    {"id": "REC-1008", "sku": "SKU-104", "state": "new"},
-)
-
-TICKETS = (
-    {"id": "T-14", "age_days": 3, "subject": "Question about a sample bracket"},
-    {"id": "T-15", "age_days": 1, "subject": "Question about sample desk hours"},
-    {"id": "T-16", "age_days": 5, "subject": "Question about a sample widget"},
+VISITS = (
+    {"customer": "Miller", "job": "Furnace visit", "when": "this afternoon"},
+    {"customer": "Chen", "job": "No-heat call", "when": "tomorrow morning"},
 )
 
 CONNECTIONS = (
     {
-        "id": "orders",
-        "name": "Orders feed",
-        "kind": "In-process table",
+        "id": "inbox",
+        "name": "Customer inbox",
+        "kind": "Mail",
         "status": "connected",
-        "detail": "One fabricated order. There is no remote account.",
+        "detail": "New customer mail shows up here.",
     },
     {
-        "id": "inventory",
-        "name": "Inventory file",
-        "kind": "In-process table",
+        "id": "calendar",
+        "name": "Job calendar",
+        "kind": "Calendar",
         "status": "connected",
-        "detail": "Three fabricated SKUs. The digest reads this table.",
+        "detail": "Today's visits for the techs.",
     },
     {
-        "id": "mailbox",
-        "name": "Support mailbox",
-        "kind": "In-process table",
+        "id": "shelf",
+        "name": "Parts shelf",
+        "kind": "Spreadsheet",
         "status": "connected",
-        "detail": "Three fabricated tickets. Nothing is sent off this machine.",
+        "detail": "What's in the van and on the shelf.",
     },
 )
 
@@ -72,58 +62,51 @@ def esc(value: object) -> str:
 
 
 def stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%d %b  %H:%M:%S")
+    return datetime.now(ZoneInfo("America/New_York")).strftime("%b %-d, %-I:%M %p")
 
 
-def run_inventory_digest() -> str:
-    low = [item["sku"] for item in INVENTORY if item["on_hand"] < item["threshold"]]
-    names = ", ".join(low) if low else "none"
+def run_morning_list() -> str:
+    first = VISITS[0]
     return (
-        f"Read {len(INVENTORY)} sample SKUs from the inventory table. "
-        f"Below the sample threshold: {names}."
+        f"{len(VISITS)} visits on today's board. "
+        f"Next up: {first['job'].lower()} for the {first['customer']} house, {first['when']}."
     )
 
 
-def run_acknowledgement() -> str:
-    record_id = ORDERS[0]["id"]
-    if record_id in SEEN:
-        return f"{record_id} was already acknowledged. The handler did not write a second time."
-    SEEN.add(record_id)
-    return f"Acknowledged sample record {record_id} for {ORDERS[0]['sku']}."
+def run_on_the_way() -> str:
+    if "miller" in SEEN:
+        return "The Miller house was already texted. No second text went out."
+    SEEN.add("miller")
+    return "Texted the Miller house. The tech is about 20 minutes out."
 
 
-def run_stale_nudge() -> str:
-    stale = [ticket["id"] for ticket in TICKETS if ticket["age_days"] >= 2]
-    return (
-        f"Scanned {len(TICKETS)} sample tickets. "
-        f"{len(stale)} are older than 2 days ({', '.join(stale)}). "
-        "Those drafts stayed in the run history. Nothing was sent."
-    )
+def run_invoice_check() -> str:
+    return "Invoices 1042 and 1048 are past due. The drafts are saved. Nothing was emailed."
 
 
 AUTOMATIONS = (
     {
         "id": "inventory-digest",
-        "name": "Inventory digest",
+        "name": "Morning job list",
         "trigger": "schedule",
-        "trigger_label": "Hourly",
+        "trigger_label": "Weekday mornings",
         "interval": 3600,
-        "handler": run_inventory_digest,
+        "handler": run_morning_list,
     },
     {
         "id": "acknowledgement",
-        "name": "Record acknowledgement",
+        "name": "On-the-way text",
         "trigger": "event",
-        "trigger_label": "Event",
-        "handler": run_acknowledgement,
+        "trigger_label": "When a tech leaves",
+        "handler": run_on_the_way,
     },
     {
         "id": "stale-nudge",
-        "name": "Stale-ticket nudge",
+        "name": "Friday invoice check",
         "trigger": "schedule",
-        "trigger_label": "Hourly",
+        "trigger_label": "Fridays",
         "interval": 3600,
-        "handler": run_stale_nudge,
+        "handler": run_invoice_check,
     },
 )
 
@@ -140,7 +123,7 @@ def execute(automation_id: str, source: str) -> dict:
     item = automation_by_id(automation_id)
     if item is None:
         raise KeyError(automation_id)
-    label = {"manual": "Manual", "schedule": "Schedule", "event": "Event"}[source]
+    label = {"manual": "You", "schedule": "Automatic", "event": "Visit"}[source]
     with LOCK:
         try:
             result = item["handler"]()
@@ -236,7 +219,7 @@ def automations_html(state: dict) -> str:
             "</div>"
             f"<p data-last='{esc(item['id'])}'>{esc(item['last_result'])}</p>"
             "</div>"
-            f"<button type='button' data-run='{esc(item['id'])}'>Run</button>"
+            f"<button type='button' data-run='{esc(item['id'])}'>Run now</button>"
             "</article>"
         )
     return "".join(rows)
@@ -244,7 +227,7 @@ def automations_html(state: dict) -> str:
 
 def history_html(state: dict) -> str:
     rows = [
-        "<tr><th>UTC</th><th>Source</th><th>Automation</th><th>Result</th></tr>"
+        "<tr><th>Time</th><th>Started by</th><th>Job</th><th>What happened</th></tr>"
     ]
     for row in state["history"]:
         rows.append(
@@ -324,67 +307,82 @@ PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mission Control — representative sample</title>
+  <title>Today — Pine Street Heating</title>
   <style>
-    :root { color-scheme: light; --paper: #e7e1d4; --card: #f7f3ea; --ink: #1c1915; --muted: #5e584e; --soft: #d9d2c5; --clay: #8f3d24; --good: #1d6b45; }
+    :root { color-scheme: light; --ink:#111; --yellow:#F5C400; --paper:#F3F3F0; --card:#fff; --line:#E4E4E0; --muted:#5E5E5E; --good:#157A3A; }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
-    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; border-top: 6px solid var(--clay); }
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 28px 36px; }
-    header { display: flex; justify-content: space-between; gap: 32px; align-items: end; margin-bottom: 18px; }
-    .kicker, .kind, .trigger, footer, th, td.when, td.source { font-family: "JetBrains Mono", ui-monospace, monospace; }
-    .kicker { margin: 0 0 6px; color: var(--clay); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
-    h1 { margin: 0; font-family: "Liberation Serif", Georgia, serif; font-size: 38px; font-weight: 400; letter-spacing: -0.03em; line-height: 0.95; }
-    .lede { max-width: 380px; margin: 0; color: var(--muted); font-size: 14px; }
-    .panel { background: var(--card); border: 1px solid var(--ink); }
-    .panel h2 { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--ink); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
-    button { font: inherit; background: var(--ink); color: var(--card); border: 1px solid var(--ink); padding: 8px 12px; cursor: pointer; }
-    button:disabled { opacity: 0.45; cursor: wait; }
-    .top { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
-    .conn, .auto { padding: 12px 14px 14px; border-top: 1px solid var(--soft); }
+    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; }
+    .app { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+    .nav { background: #111; color: #fff; padding: 18px 14px; }
+    .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; }
+    .mark { width: 34px; height: 34px; border-radius: 8px; background: var(--yellow); color: #111; font-weight: 800; display: grid; place-items: center; }
+    .brand strong { display: block; font-size: 14px; }
+    .brand span { color: #B5B5B5; font-size: 12px; }
+    .item { color: #D0D0D0; font-size: 14px; padding: 9px 10px; border-radius: 8px; margin-bottom: 4px; }
+    .item.on { background: var(--yellow); color: #111; font-weight: 700; }
+    .main { padding: 22px 26px 28px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; font-weight: 750; }
+    .lede, .office { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+    .panel h2 { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 700; }
+    button { font: inherit; font-weight: 700; background: var(--yellow); color: #111; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .top { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+    .conn, .auto { padding: 12px 14px; border-top: 1px solid var(--line); }
     #connections .conn:first-child, #automations .auto:first-child { border-top: 0; }
     .conn-top, .auto-top { display: flex; gap: 8px; align-items: baseline; }
-    h3 { margin: 0; font-size: 15px; font-weight: 600; }
-    .kind, .trigger { margin-left: auto; color: var(--clay); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+    h3 { margin: 0; font-size: 15px; font-weight: 700; }
+    .kind, .trigger { margin-left: auto; background: #111; color: var(--yellow); font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
     .conn p, .auto p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; flex: 0 0 auto; transform: translateY(1px); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; }
     .auto { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; }
-    .history { margin-top: 16px; }
+    .history { margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 14px; text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; }
-    td { border-top: 1px solid var(--soft); font-size: 13px; }
-    td.when, td.source { white-space: nowrap; font-size: 12px; }
-    #error { color: var(--clay); min-height: 0; }
-    #error:not([hidden]) { margin: 8px 0 0; }
-    footer { margin-top: 14px; color: var(--muted); font-size: 11px; letter-spacing: 0.02em; }
+    th, td { padding: 9px 14px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; font-weight: 700; }
+    td { border-top: 1px solid var(--line); font-size: 13px; }
+    td.when, td.source { white-space: nowrap; }
+    td.source { font-weight: 700; }
+    #error { color: #8A1F1F; }
+    footer { margin-top: 14px; color: #8A8A8A; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <p class="kicker">Representative sample</p>
-        <h1>Mission Control</h1>
+  <div class="app">
+    <aside class="nav">
+      <div class="brand"><span class="mark">P</span><div><strong>Pine Street</strong><span>Heating</span></div></div>
+      <div class="item on">Today</div>
+      <div class="item">Jobs</div>
+      <div class="item">Invoices</div>
+      <div class="item">Customers</div>
+    </aside>
+    <div class="main">
+      <header>
+        <div>
+          <h1>Today</h1>
+          <p class="lede">The accounts this office uses, the jobs that run on their own, and what already happened.</p>
+        </div>
+        <p class="office">Office view</p>
+      </header>
+      <div class="top">
+        <section class="panel">
+          <h2>Connected</h2>
+          <div id="connections">__CONNECTIONS__</div>
+        </section>
+        <section class="panel">
+          <h2>Running for the shop</h2>
+          <div id="automations">__AUTOMATIONS__</div>
+        </section>
       </div>
-      <p class="lede">Connections, automations, and run history live in this process. No workflow host is called.</p>
-    </header>
-    <div class="top">
-      <section class="panel">
-        <h2>Connections</h2>
-        <div id="connections">__CONNECTIONS__</div>
+      <section class="panel history">
+        <h2>What already happened</h2>
+        <div id="history">__HISTORY__</div>
       </section>
-      <section class="panel">
-        <h2>Automations</h2>
-        <div id="automations">__AUTOMATIONS__</div>
-      </section>
+      <p id="error" hidden></p>
+      <footer>Pine Street Heating is a made-up shop. Not a real company, and not a client's system.</footer>
     </div>
-    <section class="panel history">
-      <h2>Run history</h2>
-      <div id="history">__HISTORY__</div>
-    </section>
-    <p id="error" hidden></p>
-    <footer>Original representative sample of the kind of work. Not a client system.</footer>
   </div>
   <script>
     async function post(url, body) {

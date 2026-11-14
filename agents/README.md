@@ -1,17 +1,8 @@
-# Sample agent
+# Parts desk
 
-Original representative sample of an agent loop. Not a client system.
+The parts counter for Pine Street Heating, a made-up shop. Not a real company, and not a client's system.
 
-`run_agent` asks `plan` what to do, calls a tool, records the observation, and repeats until the planner returns a final reply. The trace on the page is that loop, one row per step.
-
-The tools are fake. `search_inventory` reads a three-line table. `draft_customer_reply` writes a sentence from the observation and does not send it. `plan` is scripted so the demo runs with no model API. It returns the same shape a model would: either a tool call or a final reply. Replace `plan` and leave the loop.
-
-## What it shows
-
-- A loop with a step limit
-- Two tools and the arguments passed to them
-- Observations fed back into the next plan
-- A visible trace, including the final reply
+Ask whether the condenser fan is in stock. The desk checks the shelf, then writes what to tell the customer. It does not text them. **Check the mounting bracket** does the same for the part that is on backorder for the Chen job.
 
 ## Run
 
@@ -25,14 +16,10 @@ Open http://127.0.0.1:8745
 
 Python 3.10 or newer. The standard library is enough.
 
-The page opens on a finished run for sample `SKU-104`, which is in stock. Press **Try the backorder SKU** for `SKU-220`. A goal with no SKU stops before any tool call. An unknown SKU is looked up, then the loop stops without a draft.
+The page opens on a finished check of the condenser fan: 18 in stock, and a note that one can come out this afternoon. A question that names neither the fan nor the bracket stops before any lookup.
 
-![Agent trace for a lookup of sample SKU-104 and a drafted reply](images/trace.png)
+![Parts desk checking the condenser fan](images/trace.png)
 
-## Where to read
+## Under the hood
 
-- `plan` — the stand-in planner
-- `run_agent` — the loop
-- `search_inventory` and `draft_customer_reply` — the tools
-
-The inventory in this file is fabricated. It is not a stock system.
+`run_agent` asks `plan` what to do, calls a tool, reads what came back, and repeats until there is a customer note. The steps on the page are that loop. The shelf is two lines in this file. `plan` is scripted so the demo needs no model. Replace `plan` and leave the loop.

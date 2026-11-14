@@ -16,7 +16,8 @@ import json
 import queue
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -30,9 +31,16 @@ LOG: list[dict] = []
 LOCK = threading.Lock()
 
 SEED = {
-    "idempotency_key": "evt-seed-1008",
+    "idempotency_key": "invoice-1042",
     "type": "sample.record.created",
-    "payload": {"record_id": "REC-1008"},
+    "payload": {"record_id": "1042", "customer": "Miller"},
+}
+
+STATUS = {
+    "accepted": "Queued",
+    "processed": "Sent",
+    "duplicate": "Already sent",
+    "rejected": "Needs a look",
 }
 
 
@@ -41,27 +49,38 @@ def esc(value: object) -> str:
 
 
 def stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+    return datetime.now(ZoneInfo("America/New_York")).strftime("%-I:%M %p")
 
 
-def log(kind: str, key: str, detail: str) -> None:
+def invoice_of(event: dict) -> str:
+    payload = event.get("payload") or {}
+    number = str(payload.get("record_id") or "").strip()
+    customer = str(payload.get("customer") or "").strip()
+    if number and customer:
+        return f"{number} · {customer}"
+    return number or "Invoice"
+
+
+def log(kind: str, key: str, detail: str, invoice: str) -> None:
     with LOCK:
-        LOG.insert(0, {"at": stamp(), "kind": kind, "key": key, "detail": detail})
+        LOG.insert(0, {"at": stamp(), "kind": kind, "key": key, "invoice": invoice, "detail": detail})
         del LOG[80:]
 
 
 def apply(event: dict) -> dict:
-    """The only business step in the sample: remember a fabricated record id."""
+    """Send one reminder for one invoice. The words are the whole business step."""
     if event.get("type") != "sample.record.created":
-        return {"ok": False, "error": "This sample handles only sample.record.created."}
+        return {"ok": False, "error": "This desk only sends invoice reminders."}
     payload = event.get("payload") or {}
     record_id = str(payload.get("record_id") or "").strip()
+    customer = str(payload.get("customer") or "the customer").strip()
     if not record_id:
-        return {"ok": False, "error": "payload.record_id is required."}
+        return {"ok": False, "error": "Which invoice should be reminded?"}
     return {
         "ok": True,
         "recorded": record_id,
-        "note": f"Recorded {record_id} in the sample log. Nothing left this machine.",
+        "customer": customer,
+        "note": f"Sent {customer} a reminder for invoice {record_id}.",
     }
 
 
@@ -74,10 +93,11 @@ def worker() -> None:
         with LOCK:
             RESULTS[key] = result
             INFLIGHT.discard(key)
+        invoice = invoice_of(event)
         if result.get("ok"):
-            log("processed", key, result["note"])
+            log("processed", key, result["note"], invoice)
         else:
-            log("rejected", key, result["error"])
+            log("rejected", key, result["error"], invoice)
         job["done"].set()
         JOBS.task_done()
 
@@ -100,13 +120,14 @@ def accept(event: dict, wait: bool = False) -> dict:
             JOBS.put({"event": event, "done": done})
             state = "queued"
             stored = None
+    invoice = invoice_of(event)
     if state == "duplicate":
-        log("duplicate", key, "Returned the stored result. The handler did not run again.")
+        log("duplicate", key, "Already reminded. No second note went out.", invoice)
         return {"status": "duplicate", "result": stored}
     if state == "in_flight":
-        log("duplicate", key, "The first delivery is still in the queue.")
+        log("duplicate", key, f"The reminder for invoice {invoice} is already going out.", invoice)
         return {"status": "in_flight"}
-    log("accepted", key, "Queued for the sample handler.")
+    log("accepted", key, f"Queued a reminder for invoice {invoice}.", invoice)
     if wait:
         if not done.wait(timeout=3):
             raise TimeoutError("worker did not finish")
@@ -125,31 +146,32 @@ def snapshot() -> dict:
 
 
 def activity_html(state: dict) -> str:
-    rows = ["<tr><th>UTC</th><th>Event</th><th>Key</th><th>Detail</th></tr>"]
+    rows = ["<tr><th>Time</th><th>Status</th><th>Invoice</th><th>What happened</th></tr>"]
     for row in state["log"]:
         rows.append(
             "<tr>"
             f"<td class='when'>{esc(row['at'])}</td>"
-            f"<td class='kind kind-{esc(row['kind'])}'>{esc(row['kind'])}</td>"
-            f"<td class='when'>{esc(row['key'])}</td>"
+            f"<td class='kind kind-{esc(row['kind'])}'>{esc(STATUS.get(row['kind'], row['kind']))}</td>"
+            f"<td class='when'>{esc(row['invoice'])}</td>"
             f"<td>{esc(row['detail'])}</td>"
             "</tr>"
         )
-    keys = ", ".join(state["stored_keys"]) if state["stored_keys"] else "none"
-    return (
-        f"<p class='meta'>Stored keys: {esc(keys)}. A stored key is not queued again.</p>"
-        "<table>" + "".join(rows) + "</table>"
-    )
+    return "<p class='meta'>Each invoice gets one reminder. A second try does not send again.</p><table>" + "".join(rows) + "</table>"
+
+
+def plain(outcome: dict) -> str:
+    result = outcome.get("result") or {}
+    if outcome.get("status") == "duplicate":
+        return "Already reminded. No second note went out."
+    return result.get("note") or result.get("error") or "Nothing to show yet."
 
 
 def page(last: dict | None = None) -> str:
     state = snapshot()
-    result = "Send a sample event to watch the queue."
+    result = "Send a reminder to see it here."
     if last is not None:
-        result = json.dumps(last, indent=2)
-    return (
-        PAGE.replace("__ACTIVITY__", activity_html(state)).replace("__RESULT__", esc(result))
-    )
+        result = plain(last)
+    return PAGE.replace("__ACTIVITY__", activity_html(state)).replace("__RESULT__", esc(result))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -191,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "outcome": outcome,
                 "activity_html": activity_html(state),
-                "result_text": json.dumps(outcome, indent=2),
+                "result_text": plain(outcome),
             }
         ).encode()
         self._send(body, 200, "application/json")
@@ -216,84 +238,93 @@ PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Webhook inbox — representative sample</title>
+  <title>Invoices — Pine Street Heating</title>
   <style>
-    :root { color-scheme: light; --paper: #e7e1d4; --card: #f7f3ea; --ink: #1c1915; --muted: #5e584e; --soft: #d9d2c5; --clay: #8f3d24; --good: #1d6b45; }
+    :root { color-scheme: light; --ink:#111; --yellow:#F5C400; --paper:#F3F3F0; --card:#fff; --line:#E4E4E0; --muted:#5E5E5E; --good:#157A3A; }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
-    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; border-top: 6px solid var(--clay); }
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 28px 36px; }
-    header { display: flex; justify-content: space-between; gap: 32px; align-items: end; margin-bottom: 18px; }
-    .kicker, footer, .meta, th, td.when, td.kind { font-family: "JetBrains Mono", ui-monospace, monospace; }
-    .kicker { margin: 0 0 6px; color: var(--clay); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
-    h1 { margin: 0; font-family: "Liberation Serif", Georgia, serif; font-size: 38px; font-weight: 400; letter-spacing: -0.03em; line-height: 0.95; }
-    .lede { max-width: 420px; margin: 0; color: var(--muted); font-size: 14px; }
-    .panel { background: var(--card); border: 1px solid var(--ink); }
-    .panel h2 { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--ink); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
-    button { font: inherit; background: var(--ink); color: var(--card); border: 1px solid var(--ink); padding: 8px 12px; cursor: pointer; }
-    button.ghost { background: transparent; color: var(--ink); }
-    button:disabled { opacity: 0.45; cursor: wait; }
-    .layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--soft); }
-    .meta { margin: 0; padding: 10px 14px 0; color: var(--muted); font-size: 12px; }
+    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; }
+    .app { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+    .nav { background: #111; color: #fff; padding: 18px 14px; }
+    .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; }
+    .mark { width: 34px; height: 34px; border-radius: 8px; background: var(--yellow); color: #111; font-weight: 800; display: grid; place-items: center; }
+    .brand strong { display: block; font-size: 14px; }
+    .brand span { color: #B5B5B5; font-size: 12px; }
+    .item { color: #D0D0D0; font-size: 14px; padding: 9px 10px; border-radius: 8px; margin-bottom: 4px; }
+    .item.on { background: var(--yellow); color: #111; font-weight: 700; }
+    .main { padding: 22px 26px 28px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; font-weight: 750; }
+    .lede, .office { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+    .panel h2 { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 700; }
+    button { font: inherit; font-weight: 700; background: var(--yellow); color: #111; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button.ghost { background: #fff; border: 1px solid #111; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .layout { display: grid; grid-template-columns: 1fr 280px; gap: 14px; align-items: start; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    .meta { margin: 0; padding: 12px 14px 0; color: var(--muted); font-size: 13px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 14px; text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; }
-    td { border-top: 1px solid var(--soft); font-size: 13px; }
-    td.when, td.kind { font-size: 12px; white-space: nowrap; }
-    td.kind { text-transform: uppercase; letter-spacing: 0.06em; }
+    th, td { padding: 9px 14px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; font-weight: 700; }
+    td { border-top: 1px solid var(--line); font-size: 13px; }
+    td.when { white-space: nowrap; }
+    td.kind { font-weight: 700; white-space: nowrap; }
     .kind-processed { color: var(--good); }
-    .kind-duplicate, .kind-rejected { color: var(--clay); }
-    .aside p, .aside li { color: var(--muted); font-size: 13px; }
-    .aside p { margin: 12px 14px; }
-    .aside ol { margin: 0; padding: 0 16px 16px 32px; }
-    pre { margin: 0; padding: 12px 14px 16px; white-space: pre-wrap; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.5; }
-    #error { color: var(--clay); }
-    footer { margin-top: 14px; color: var(--muted); font-size: 11px; }
+    .kind-duplicate { color: #8A5A00; }
+    .aside p { margin: 12px 14px 14px; color: var(--muted); font-size: 14px; }
+    #result { margin: 0; padding: 14px; font-size: 15px; font-weight: 650; }
+    #error { color: #8A1F1F; }
+    footer { margin-top: 14px; color: #8A8A8A; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <p class="kicker">Representative sample</p>
-        <h1>Webhook inbox</h1>
-      </div>
-      <p class="lede">An in-process queue, an idempotent handler, and a log. The handler stores a sample id and stops.</p>
-    </header>
-    <div class="layout">
-      <section class="panel">
-        <h2>Activity</h2>
-        <div class="actions">
-          <button type="button" id="send-sample">Send sample event</button>
-          <button type="button" class="ghost" id="send-again">Send that key again</button>
+  <div class="app">
+    <aside class="nav">
+      <div class="brand"><span class="mark">P</span><div><strong>Pine Street</strong><span>Heating</span></div></div>
+      <div class="item">Today</div>
+      <div class="item">Jobs</div>
+      <div class="item on">Invoices</div>
+      <div class="item">Customers</div>
+    </aside>
+    <div class="main">
+      <header>
+        <div>
+          <h1>Invoice reminders</h1>
+          <p class="lede">Past-due invoices get one note. Pressing again does not send a second one.</p>
         </div>
-        <div id="activity">__ACTIVITY__</div>
-      </section>
-      <div>
-        <section class="panel aside">
-          <h2>Handler</h2>
-          <p>Send sample event posts key evt-ui-2041 for record REC-2041. The second click must return the stored result and leave the handler idle.</p>
-          <ol>
-            <li>Reject a delivery with no idempotency key.</li>
-            <li>Queue a key that has not been seen.</li>
-            <li>Return the stored result for a key that has.</li>
-          </ol>
+        <p class="office">Bookkeeping</p>
+      </header>
+      <div class="layout">
+        <section class="panel">
+          <h2>Reminders</h2>
+          <div class="actions">
+            <button type="button" id="send-sample">Remind the Chen family</button>
+            <button type="button" class="ghost" id="send-again">Try that reminder again</button>
+          </div>
+          <div id="activity">__ACTIVITY__</div>
         </section>
-        <section class="panel" style="margin-top:16px">
-          <h2>Last response</h2>
-          <pre id="result">__RESULT__</pre>
-        </section>
+        <div>
+          <section class="panel aside">
+            <h2>On the list</h2>
+            <p>1042 · Miller, $480, furnace visit.</p>
+            <p>1048 · Chen, $260, no-heat call. The part is still on backorder.</p>
+          </section>
+          <section class="panel" style="margin-top:14px">
+            <h2>Latest</h2>
+            <p id="result">__RESULT__</p>
+          </section>
+        </div>
       </div>
+      <p id="error" hidden></p>
+      <footer>Pine Street Heating is a made-up shop. Not a real company, and not a client's system.</footer>
     </div>
-    <p id="error" hidden></p>
-    <footer>Original representative sample of the kind of work. Not a client system.</footer>
   </div>
   <script>
     const sample = {
-      idempotency_key: "evt-ui-2041",
+      idempotency_key: "invoice-1048",
       type: "sample.record.created",
-      payload: { record_id: "REC-2041" },
+      payload: { record_id: "1048", customer: "Chen" },
     };
     async function send(event) {
       const buttons = document.querySelectorAll("button");

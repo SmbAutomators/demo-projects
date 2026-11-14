@@ -23,14 +23,14 @@ SERVER = Path(__file__).with_name("server.py")
 PROTOCOL = "2024-11-05"
 
 EXAMPLES = {
-    "lookup_sample_record": {"record_id": "REC-104"},
+    "lookup_sample_record": {"record_id": "104"},
     "list_open_sample_items": {},
-    "draft_sample_note": {"record_id": "REC-220", "audience": "a sample customer"},
+    "draft_sample_note": {"record_id": "220", "audience": "the Chen family"},
 }
 LABELS = {
-    "lookup_sample_record": "Lookup REC-104",
-    "list_open_sample_items": "List open items",
-    "draft_sample_note": "Draft a note for REC-220",
+    "lookup_sample_record": "Miller visit",
+    "list_open_sample_items": "What's waiting",
+    "draft_sample_note": "Note for the Chen job",
 }
 
 
@@ -157,23 +157,17 @@ def tools_html(tools: list[dict]) -> str:
 
 
 def transcript_html(view: dict) -> str:
-    args = json.dumps(view["arguments"], separators=(",", ":"))
     request = json.dumps(view["request"], separators=(",", ":"))
     info = view["server"]
     tool_count = len(view["tools"])
     return (
-        "<h2>Session</h2>"
-        f"<p class='meta'>Spawned server.py and spoke newline-delimited JSON-RPC on stdin and stdout. "
-        f"Server {esc(info['name'])} {esc(info['version'])}. Protocol {esc(view['protocol'])}.</p>"
-        "<div class='row'><span class='dir'>&rarr;</span><span>initialize</span></div>"
-        f"<div class='row'><span class='dir'>&larr;</span><span>{esc(info['name'])} {esc(info['version'])}</span></div>"
-        "<div class='row'><span class='dir'>&rarr;</span><span>notifications/initialized</span></div>"
-        f"<div class='row'><span class='dir'>&larr;</span><span>tools/list · {tool_count} tools</span></div>"
-        f"<div class='row'><span class='dir'>&rarr;</span><span>tools/call {esc(view['tool'])} {esc(args)}</span></div>"
-        "<h3>Tool result</h3>"
-        f"<pre>{esc(view['result_text'])}</pre>"
-        "<h3>Call on the wire</h3>"
+        "<h2>Answer</h2>"
+        f"<p class='answer'>{esc(view['result_text'])}</p>"
+        f"<p class='meta'>{esc(LABELS.get(view['tool'], 'Shop desk'))} · looked up just now</p>"
+        "<details><summary>How this desk is connected</summary>"
         f"<pre>{esc(request)}</pre>"
+        f"<p class='meta'>{tool_count} lookups available. Connection {esc(info['name'])} {esc(info['version'])}.</p>"
+        "</details>"
     )
 
 
@@ -256,54 +250,68 @@ PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sample tools — representative sample</title>
+  <title>Front desk — Pine Street Heating</title>
   <style>
-    :root { color-scheme: light; --paper: #e7e1d4; --card: #f7f3ea; --ink: #1c1915; --muted: #5e584e; --soft: #d9d2c5; --clay: #8f3d24; }
+    :root { color-scheme: light; --ink:#111; --yellow:#F5C400; --paper:#F3F3F0; --card:#fff; --line:#E4E4E0; --muted:#5E5E5E; }
     * { box-sizing: border-box; }
     html, body { margin: 0; }
-    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; border-top: 6px solid var(--clay); }
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 28px 36px; }
-    header { display: flex; justify-content: space-between; gap: 32px; align-items: end; margin-bottom: 18px; }
-    .kicker, footer, .meta, .dir { font-family: "JetBrains Mono", ui-monospace, monospace; }
-    .kicker { margin: 0 0 6px; color: var(--clay); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
-    h1 { margin: 0; font-family: "Liberation Serif", Georgia, serif; font-size: 38px; font-weight: 400; letter-spacing: -0.03em; line-height: 0.95; }
-    .lede { max-width: 420px; margin: 0; color: var(--muted); font-size: 14px; }
-    .panel { background: var(--card); border: 1px solid var(--ink); }
-    .panel h2, #transcript h3 { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--ink); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
-    #transcript h3 { border-bottom: 0; border-top: 1px solid var(--ink); padding-bottom: 0; }
-    button { font: inherit; background: var(--ink); color: var(--card); border: 1px solid var(--ink); padding: 8px 12px; cursor: pointer; }
-    button:disabled { opacity: 0.45; cursor: wait; }
-    .layout { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+    body { background: var(--paper); color: var(--ink); font-family: Inter, "Liberation Sans", sans-serif; font-size: 15px; line-height: 1.45; }
+    .app { display: grid; grid-template-columns: 216px 1fr; min-height: 100vh; }
+    .nav { background: #111; color: #fff; padding: 18px 14px; }
+    .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; }
+    .mark { width: 34px; height: 34px; border-radius: 8px; background: var(--yellow); color: #111; font-weight: 800; display: grid; place-items: center; }
+    .brand strong { display: block; font-size: 14px; }
+    .brand span { color: #B5B5B5; font-size: 12px; }
+    .item { color: #D0D0D0; font-size: 14px; padding: 9px 10px; border-radius: 8px; margin-bottom: 4px; }
+    .item.on { background: var(--yellow); color: #111; font-weight: 700; }
+    .main { padding: 22px 26px 28px; }
+    header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; font-weight: 750; }
+    .lede, .office { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+    .panel h2 { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 700; }
+    button { font: inherit; font-weight: 700; background: var(--yellow); color: #111; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
     #tools button { display: block; width: calc(100% - 28px); margin: 12px 14px 0; text-align: left; }
     #tools p { margin: 6px 14px 0; color: var(--muted); font-size: 13px; }
     #tools p:last-child { margin-bottom: 14px; }
-    .meta { margin: 0; padding: 12px 14px; color: var(--muted); font-size: 12px; line-height: 1.5; border-bottom: 1px solid var(--soft); }
-    .row { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--soft); font-size: 13px; }
-    .meta + .row { border-top: 0; }
-    .dir { color: var(--clay); }
-    pre { margin: 0 14px 14px; padding: 12px; background: #efeae1; border: 1px solid var(--soft); white-space: pre-wrap; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.45; }
-    #error { color: var(--clay); }
-    footer { margin-top: 14px; color: var(--muted); font-size: 11px; }
+    .answer { margin: 0; padding: 16px 16px 4px; font-size: 18px; letter-spacing: -0.02em; line-height: 1.35; }
+    .meta { margin: 0; padding: 8px 16px 16px; color: var(--muted); font-size: 13px; }
+    details { border-top: 1px solid var(--line); }
+    summary { padding: 12px 16px; cursor: pointer; color: var(--muted); font-size: 13px; }
+    pre { margin: 0 16px 16px; padding: 12px; background: #111; color: #F3F3F0; border-radius: 8px; white-space: pre-wrap; font-family: "Liberation Sans", sans-serif; font-size: 12px; line-height: 1.45; }
+    #error { color: #8A1F1F; }
+    footer { margin-top: 14px; color: #8A8A8A; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <p class="kicker">Representative sample</p>
-        <h1>Sample tools</h1>
+  <div class="app">
+    <aside class="nav">
+      <div class="brand"><span class="mark">P</span><div><strong>Pine Street</strong><span>Heating</span></div></div>
+      <div class="item">Today</div>
+      <div class="item on">Front desk</div>
+      <div class="item">Jobs</div>
+      <div class="item">Customers</div>
+    </aside>
+    <div class="main">
+      <header>
+        <div>
+          <h1>Front desk</h1>
+          <p class="lede">Look up a visit, see what's waiting on parts, or draft a note. Nothing is emailed from here.</p>
+        </div>
+        <p class="office">Office</p>
+      </header>
+      <div class="layout">
+        <section class="panel">
+          <h2>Ask the shop</h2>
+          <div id="tools">__TOOLS__</div>
+        </section>
+        <section class="panel" id="transcript">__TRANSCRIPT__</section>
       </div>
-      <p class="lede">A minimal MCP server. This page is a client: it starts the server and sends JSON-RPC over stdio.</p>
-    </header>
-    <div class="layout">
-      <section class="panel">
-        <h2>Tools</h2>
-        <div id="tools">__TOOLS__</div>
-      </section>
-      <section class="panel" id="transcript">__TRANSCRIPT__</section>
+      <p id="error" hidden></p>
+      <footer>Pine Street Heating is a made-up shop. Not a real company, and not a client's system.</footer>
     </div>
-    <p id="error" hidden></p>
-    <footer>Original representative sample of the kind of work. Not a client system. The tools are fake.</footer>
   </div>
   <script>
     document.addEventListener("click", async (event) => {

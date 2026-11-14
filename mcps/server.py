@@ -17,48 +17,57 @@ PROTOCOL = "2024-11-05"
 SERVER_INFO = {"name": "sample-tools", "version": "0.1.0"}
 
 RECORDS = {
-    "REC-104": {"name": "Sample widget", "on_hand": 18, "status": "in_stock"},
-    "REC-220": {"name": "Sample bracket", "on_hand": 0, "status": "backorder"},
-    "REC-315": {"name": "Sample gasket", "on_hand": 40, "status": "in_stock"},
+    "104": {
+        "name": "Miller furnace visit",
+        "waiting": False,
+        "summary": "Miller furnace visit is on the board this afternoon. Invoice 1042 for $480 is still open.",
+    },
+    "220": {
+        "name": "Mounting bracket",
+        "waiting": True,
+        "summary": "The mounting bracket for the Chen job is on backorder. We don't have an arrival date.",
+    },
+    "315": {
+        "name": "Filter pack",
+        "waiting": False,
+        "summary": "Filter packs are on the shelf. Forty packs, nothing to reorder.",
+    },
 }
 
 
 def lookup_sample_record(record_id: str) -> dict:
     record = RECORDS.get(str(record_id).strip())
     if record is None:
-        return {"ok": False, "error": f"No sample record {record_id}."}
-    return {"ok": True, "record_id": record_id, **record}
+        return {"ok": False, "summary": f"Nothing in the shop is filed under {record_id}."}
+    return {"ok": True, "summary": record["summary"]}
 
 
 def list_open_sample_items() -> dict:
-    open_items = [
-        {"record_id": record_id, **record}
-        for record_id, record in RECORDS.items()
-        if record["status"] != "in_stock" or record["on_hand"] == 0
-    ]
-    return {"ok": True, "items": open_items}
+    waiting = [record["summary"] for record in RECORDS.values() if record["waiting"]]
+    if not waiting:
+        return {"ok": True, "summary": "Nothing is waiting on parts."}
+    return {"ok": True, "summary": " ".join(waiting)}
 
 
-def draft_sample_note(record_id: str, audience: str = "a sample customer") -> dict:
+def draft_sample_note(record_id: str, audience: str = "the customer") -> dict:
     record = RECORDS.get(str(record_id).strip())
     if record is None:
-        return {"ok": False, "error": f"No sample record {record_id}."}
-    who = audience.strip() or "a sample customer"
-    note = (
-        f"Hello. This note is about sample record {record_id} ({record['name']}). "
-        f"Status: {record['status'].replace('_', ' ')}. On hand: {record['on_hand']}. "
-        f"Written for {who}. Not sent."
-    )
-    return {"ok": True, "note": note}
+        return {"ok": False, "summary": f"No job matches {record_id}, so no note was written."}
+    who = audience.strip() or "the customer"
+    if record["waiting"]:
+        note = f"Hi {who} — the part for your visit is on order. We'll call when it arrives. Not sent."
+    else:
+        note = f"Hi {who} — {record['summary']} Not sent."
+    return {"ok": True, "summary": note}
 
 
 TOOLS = (
     {
         "name": "lookup_sample_record",
-        "description": "Look up one fabricated catalog record by id. Returns sample data only.",
+        "description": "Look up a job or a part for the shop.",
         "inputSchema": {
             "type": "object",
-            "properties": {"record_id": {"type": "string", "description": "Sample id, such as REC-104."}},
+            "properties": {"record_id": {"type": "string", "description": "Job or part number, such as 104."}},
             "required": ["record_id"],
             "additionalProperties": False,
         },
@@ -66,13 +75,13 @@ TOOLS = (
     },
     {
         "name": "list_open_sample_items",
-        "description": "List fabricated records that are not in stock.",
+        "description": "List jobs that are waiting on a part.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "fn": list_open_sample_items,
     },
     {
         "name": "draft_sample_note",
-        "description": "Draft a note about a fabricated record. The note is not sent.",
+        "description": "Write a customer note. It is not sent.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -107,7 +116,7 @@ def call_tool(name: str, arguments: dict) -> tuple[str, bool]:
         payload = tool["fn"](**arguments)
     except TypeError as exc:
         return json.dumps({"ok": False, "error": f"Bad arguments: {exc}"}, indent=2, ensure_ascii=False), True
-    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    text = str(payload.get("summary") or json.dumps(payload, indent=2, ensure_ascii=False))
     return text, not payload.get("ok", True)
 
 
